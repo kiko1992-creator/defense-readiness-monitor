@@ -20,19 +20,25 @@ COUNTRIES = ["POL", "LTU", "LVA", "EST", "USA", "NOR", "GRC", "GBR",
 DB_FILE = "defense.db"
 
 
-def fetch_indicator(indicator_code, indicator_name, start=2019, end=2025):
-    """Pull one World Bank indicator as a tidy (country, year, indicator, value) table."""
+def fetch_indicator(indicator_code, indicator_name, start=2019, end=2025, db=2):
+    """Pull one World Bank indicator as a tidy (country, year, indicator, value) table.
+
+    db: which World Bank database the indicator lives in. Most indicators
+    (spending, GDP, population, etc.) are in database 2, World Development
+    Indicators -- the default. Governance indicators like PV.EST and RL.EST
+    live in database 3, Worldwide Governance Indicators, and must be
+    fetched with db=3 or the API returns a malformed response.
+    """
+    wb.db = db
     df = wb.data.DataFrame(indicator_code, COUNTRIES, range(start, end))
-    # Reshape from wide (year columns) to long (one row per country-year)
     df = df.stack().reset_index()
     df.columns = ["country", "year", "value"]
     df["year"] = df["year"].str.replace("YR", "").astype(int)
-    # Tag every row with which indicator it belongs to -- this is the
-    # column that lets us stack many indicators into one table safely.
     df["indicator"] = indicator_name
-    # Reorder columns to match our schema: country, year, indicator, value
     return df[["country", "year", "indicator", "value"]]
 
+
+# --- Military ---------------------------------------------------------
 
 def fetch_spending(start=2019, end=2025):
     """Military expenditure as % of GDP."""
@@ -44,13 +50,91 @@ def fetch_personnel(start=2019, end=2025):
     return fetch_indicator("MS.MIL.TOTL.P1", "personnel", start, end)
 
 
-def create_schema(conn):
-    """Create the indicators table with an explicit composite primary key.
+# --- Economic capacity --------------------------------------------------
 
-    (country, year, indicator) together must be unique -- that's the
-    definition of "one fact." value is deliberately NOT part of the key:
-    it's the thing being identified, not part of the identifier.
-    """
+def fetch_gdp_growth(start=2019, end=2025):
+    """GDP growth, annual %."""
+    return fetch_indicator("NY.GDP.MKTP.KD.ZG", "gdp_growth", start, end)
+
+
+def fetch_gdp_per_capita(start=2019, end=2025):
+    """GDP per capita, current US$."""
+    return fetch_indicator("NY.GDP.PCAP.CD", "gdp_per_capita", start, end)
+
+
+def fetch_debt(start=2019, end=2025):
+    """Central government debt, total, % of GDP."""
+    return fetch_indicator("GC.DOD.TOTL.GD.ZS", "gov_debt_pct_gdp", start, end)
+
+
+def fetch_inflation(start=2019, end=2025):
+    """Inflation, consumer prices, annual %."""
+    return fetch_indicator("FP.CPI.TOTL.ZG", "inflation", start, end)
+
+
+def fetch_unemployment(start=2019, end=2025):
+    """Unemployment, total, % of labor force."""
+    return fetch_indicator("SL.UEM.TOTL.ZS", "unemployment", start, end)
+
+
+def fetch_trade_openness(start=2019, end=2025):
+    """Trade (exports + imports) as % of GDP."""
+    return fetch_indicator("NE.TRD.GNFS.ZS", "trade_pct_gdp", start, end)
+
+
+# --- Demographic ----------------------------------------------------------
+
+def fetch_population(start=2019, end=2025):
+    """Total population."""
+    return fetch_indicator("SP.POP.TOTL", "population", start, end)
+
+
+def fetch_population_growth(start=2019, end=2025):
+    """Population growth, annual %."""
+    return fetch_indicator("SP.POP.GROW", "population_growth", start, end)
+
+
+# --- Security / institutional ---------------------------------------------
+
+def fetch_battle_deaths(start=2019, end=2025):
+    """Battle-related deaths (sourced from UCDP/PRIO, distributed via World Bank)."""
+    return fetch_indicator("VC.BTL.DETH", "battle_deaths", start, end)
+
+
+def fetch_political_stability(start=2019, end=2025):
+    """Political Stability and Absence of Violence/Terrorism (Worldwide Governance Indicators)."""
+    return fetch_indicator("GOV_WGI_PV.EST", "political_stability", start, end, db=3)
+
+
+def fetch_rule_of_law(start=2019, end=2025):
+    """Rule of Law estimate (Worldwide Governance Indicators)."""
+    return fetch_indicator("GOV_WGI_RL.EST", "rule_of_law", start, end, db=3)
+
+
+# --- Assembly ---------------------------------------------------------
+
+# Every fetch function to include when building the database. Adding a
+# new source later means writing one more fetch_* function above and
+# adding it to this list -- nothing else in build_database() changes.
+FETCHERS = [
+    fetch_spending,
+    fetch_personnel,
+    fetch_gdp_growth,
+    fetch_gdp_per_capita,
+    fetch_debt,
+    fetch_inflation,
+    fetch_unemployment,
+    fetch_trade_openness,
+    fetch_population,
+    fetch_population_growth,
+    fetch_battle_deaths,
+    fetch_political_stability,
+    fetch_rule_of_law,
+]
+
+
+def create_schema(conn):
+    """Create the indicators table with an explicit composite primary key."""
     conn.execute("DROP TABLE IF EXISTS indicators")
     conn.execute("""
         CREATE TABLE indicators (
@@ -65,35 +149,29 @@ def create_schema(conn):
 
 def build_database():
     """Fetch every indicator, stack them, and write the result into SQLite."""
-    print("Fetching data from World Bank...")
-    spending_df = fetch_spending()
-    personnel_df = fetch_personnel()
+    print(f"Fetching {len(FETCHERS)} indicators from World Bank...")
+    frames = []
+    for fetch_fn in FETCHERS:
+        name = fetch_fn.__name__
+        print(f"  - {name}")
+        frames.append(fetch_fn())
 
-    # Stack (not merge!) the tidy tables on top of each other. Each source
-    # contributes its own rows; nothing is joined side-by-side anymore.
-    df = pd.concat([spending_df, personnel_df], ignore_index=True)
+    df = pd.concat(frames, ignore_index=True)
 
     print(f"Writing {len(df)} rows to {DB_FILE}...")
     conn = sqlite3.connect(DB_FILE)
     create_schema(conn)
-    # if_exists="append" because create_schema() already made the table
-    # (with its primary key) -- to_sql would otherwise create a plain
-    # table with no key constraint at all.
     df.to_sql("indicators", conn, if_exists="append", index=False)
     conn.commit()
     conn.close()
 
     print("Done. Database built.")
 
-    # Sanity check: how many (country, year) pairs are missing at least
-    # one indicator? In long format this means "a row is absent" rather
-    # than "NaN in a column," so we check by counting indicators present
-    # per country-year.
-    counts = df.groupby(["country", "year"])["indicator"].nunique()
-    incomplete = (counts < 2).sum()
-    print(f"Country-years missing at least one indicator: {incomplete} / {len(counts)}")
+    # Sanity check: how complete is coverage, per indicator?
+    n_country_years = df[["country", "year"]].drop_duplicates().shape[0]
+    print(f"\nRows per indicator (out of {n_country_years} possible country-years):")
+    print(df.groupby("indicator").size().sort_values(ascending=False))
 
 
 if __name__ == "__main__":
     build_database()
-    
