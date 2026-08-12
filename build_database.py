@@ -167,10 +167,15 @@ def build_database():
 
     print("Done. Database built.")
 
-    # Sanity check: how complete is coverage, per indicator?
+    # Sanity check: how many ACTUAL non-null values does each indicator have?
+    # (Row existence alone isn't enough -- a row can exist with value = NaN,
+    # which is exactly what happened with battle_deaths.)
     n_country_years = df[["country", "year"]].drop_duplicates().shape[0]
-    print(f"\nRows per indicator (out of {n_country_years} possible country-years):")
-    print(df.groupby("indicator").size().sort_values(ascending=False))
+    print(f"\nNon-null values per indicator (out of {n_country_years} possible country-years):")
+    non_null_counts = df.dropna(subset=["value"]).groupby("indicator").size()
+    all_indicators = df["indicator"].unique()
+    non_null_counts = non_null_counts.reindex(all_indicators, fill_value=0)
+    print(non_null_counts.sort_values(ascending=False))
 
 
 if __name__ == "__main__":
