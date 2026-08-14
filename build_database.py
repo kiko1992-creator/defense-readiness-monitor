@@ -1,8 +1,8 @@
 """
 Build the defense database.
 
-Fetches indicators from the World Bank and stores them in a local SQLite
-database (defense.db) using a LONG/TIDY schema: one row per
+Fetches indicators from the World Bank and SIPRI, storing them in a local
+SQLite database (defense.db) using a LONG/TIDY schema: one row per
 (country, year, indicator) fact, rather than one column per indicator.
 
 Adding a new data source means adding a new fetch_* function and stacking
@@ -41,8 +41,63 @@ def fetch_indicator(indicator_code, indicator_name, start=2019, end=2025, db=2):
 # --- Military ---------------------------------------------------------
 
 def fetch_spending(start=2019, end=2025):
-    """Military expenditure as % of GDP."""
+    """Military expenditure as % of GDP (World Bank, 2019+)."""
     return fetch_indicator("MS.MIL.XPND.GD.ZS", "mil_pct_gdp", start, end)
+
+
+# Map SIPRI country names to ISO 3-letter codes used in COUNTRIES
+SIPRI_TO_ISO = {
+    "Poland": "POL",
+    "Lithuania": "LTU",
+    "Latvia": "LVA",
+    "Estonia": "EST",
+    "United States of America": "USA",
+    "Norway": "NOR",
+    "Greece": "GRC",
+    "United Kingdom": "GBR",
+    "France": "FRA",
+    "Germany": "DEU",
+    "Italy": "ITA",
+    "Spain": "ESP",
+    "Belgium": "BEL",
+    "Netherlands": "NLD",
+    "Canada": "CAN",
+}
+
+
+def fetch_sipri_backfill():
+    """Military expenditure as % of GDP from SIPRI (1949-2018 only).
+
+    Extends mil_pct_gdp coverage backwards from 2019 to 1949 using SIPRI's
+    Military Expenditure Database. Only fetches 1949-2018 to avoid duplicating
+    World Bank data for 2019-2024.
+
+    SIPRI stores values as decimals (0.02 = 2%); World Bank stores as
+    percentages (2.0 = 2%). This function converts to match World Bank format.
+    """
+    df = pd.read_excel("SIPRI-Milex-data.xlsx", sheet_name="Share of GDP", header=5)
+
+    # Filter to our target countries
+    df = df[df["Country"].isin(SIPRI_TO_ISO.keys())].copy()
+
+    # Map country names to ISO codes
+    df["country"] = df["Country"].map(SIPRI_TO_ISO)
+
+    # Select only years 1949-2018 (columns are integers after header=5)
+    year_cols = [c for c in df.columns if isinstance(c, int) and 1949 <= c <= 2018]
+    df = df[["country"] + year_cols]
+
+    # Melt to long format
+    df = df.melt(id_vars=["country"], var_name="year", value_name="value")
+
+    # Handle missing values: "...", "xxx", and actual NaN
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+
+    # Convert SIPRI decimals to World Bank percentages (multiply by 100)
+    df["value"] = df["value"] * 100
+
+    df["indicator"] = "mil_pct_gdp"
+    return df[["country", "year", "indicator", "value"]]
 
 
 def fetch_personnel(start=2019, end=2025):
@@ -118,6 +173,7 @@ def fetch_rule_of_law(start=2019, end=2025):
 # adding it to this list -- nothing else in build_database() changes.
 FETCHERS = [
     fetch_spending,
+    fetch_sipri_backfill,
     fetch_personnel,
     fetch_gdp_growth,
     fetch_gdp_per_capita,
@@ -149,7 +205,7 @@ def create_schema(conn):
 
 def build_database():
     """Fetch every indicator, stack them, and write the result into SQLite."""
-    print(f"Fetching {len(FETCHERS)} indicators from World Bank...")
+    print(f"Fetching {len(FETCHERS)} indicator sources...")
     frames = []
     for fetch_fn in FETCHERS:
         name = fetch_fn.__name__

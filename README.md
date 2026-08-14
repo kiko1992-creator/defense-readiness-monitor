@@ -33,11 +33,12 @@ This design makes adding new data sources trivial: write a fetch function, appen
 
 ## Data sources
 
-All data comes from the **World Bank API** via the `wbgapi` library:
+Data comes from the **World Bank API** (`wbgapi`) and **SIPRI Military Expenditure Database**:
 
-| Indicator | World Bank Code | Database |
-|-----------|-----------------|----------|
-| Military expenditure (% GDP) | `MS.MIL.XPND.GD.ZS` | WDI |
+| Indicator | Code | Source |
+|-----------|------|--------|
+| Military expenditure (% GDP), 1949–2018 | Share of GDP sheet | SIPRI |
+| Military expenditure (% GDP), 2019–2024 | `MS.MIL.XPND.GD.ZS` | WDI |
 | GDP growth (annual %) | `NY.GDP.MKTP.KD.ZG` | WDI |
 | GDP per capita (current US$) | `NY.GDP.PCAP.CD` | WDI |
 | Inflation (consumer prices, %) | `FP.CPI.TOTL.ZG` | WDI |
@@ -48,8 +49,9 @@ All data comes from the **World Bank API** via the `wbgapi` library:
 | Political stability | `GOV_WGI_PV.EST` | WGI |
 | Rule of law | `GOV_WGI_RL.EST` | WGI |
 
-**WDI** = World Development Indicators (database 2)
-**WGI** = Worldwide Governance Indicators (database 3)
+**SIPRI** = Stockholm International Peace Research Institute ([sipri.org/databases/milex](https://sipri.org/databases/milex))
+**WDI** = World Bank, World Development Indicators (database 2)
+**WGI** = World Bank, Worldwide Governance Indicators (database 3)
 
 ## Countries
 
