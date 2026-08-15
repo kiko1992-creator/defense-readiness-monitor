@@ -6,7 +6,7 @@ Most defense comparisons rank countries by a single metric: how much they spend.
 
 ## Findings
 
-Two substantive results have emerged so far:
+Three substantive results have emerged:
 
 ### 1. Rule of law negatively correlates with defense spending (r ≈ −0.43)
 
@@ -15,6 +15,14 @@ Countries with stronger rule-of-law scores (Germany, Netherlands, Norway) tend t
 ### 2. The Baltics and Poland cluster together
 
 K-means clustering (k=4) on the 10 reliable indicators groups **Estonia, Latvia, Lithuania, and Poland** into the same cluster. These four share a distinctive profile: high defense spending relative to GDP, lower GDP per capita, and direct exposure to Russia. The algorithm finds them more similar to each other than to any Western European or North American ally.
+
+### 3. Economic/governance indicators don't predict defense spending
+
+A Ridge regression using the 9 non-spending indicators to predict `mil_pct_gdp` yields **R² = −0.91** under leave-one-out cross-validation—worse than simply predicting the mean for every country. The USA and Greece are the largest outliers: the model underpredicts USA by 2.7 pp (actual 3.4%, predicted 0.7%) and Greece by 1.5 pp. Excluding USA alone improves R² to −0.20, still negative but less dramatically so. The model's inability to predict spending from economic capacity, demographics, and governance quality is the result, not a failure: these variables genuinely don't explain why countries spend what they spend.
+
+### Synthesis
+
+Correlation, clustering, and regression all point to the same conclusion: economic and governance indicators explain only a small part of defense spending variation across NATO members. This is consistent with published literature attributing spending primarily to threat perception and domestic politics rather than economic capacity. The Baltics and Poland spend heavily despite modest economies because they perceive existential risk from Russia. The USA spends heavily because of global alliance commitments that domestic economic profiles can't capture. Greece spends heavily due to regional tensions with Turkey. None of these factors appear in World Bank governance or economic indicators.
 
 ## Schema
 
@@ -91,6 +99,9 @@ py analyze_correlation.py
 
 # Run clustering
 py cluster_countries.py
+
+# Run spending prediction (regression)
+py predict_spending.py
 ```
 
 ## Outputs
